@@ -23,6 +23,8 @@ from trie.utils.nibbles import (
     bytes_to_nibbles,
     decode_nibbles,
     encode_nibbles,
+    nibbles_to_bytes,
+    remove_nibbles_terminator,
 )
 from trie.utils.nodes import (
     get_node_type,
@@ -380,6 +382,115 @@ class HexaryTrie(object):
                 return BLANK_NODE
         else:
             raise Exception("Invariant: unreachable code path")
+
+    def _getany(self, node, reverse=False, path=[]):
+        # print('getany', node, 'reverse=', reverse, path)
+        node_type = get_node_type(node)
+        if node_type == NODE_TYPE_BLANK:
+            return None
+        if node_type == NODE_TYPE_BRANCH:
+            if node[16] and not reverse:
+                # print('found!', [16], path)
+                return [16]
+            scan_range = list(range(16))
+            if reverse:
+                scan_range.reverse()
+            for i in scan_range:
+                o = self._getany(
+                    self._get_node(
+                        node[i]),
+                    reverse=reverse,
+                    path=path + [i])
+                if o is not None:
+                    # print('found@', [i] + o, path)
+                    return [i] + o
+            if node[16] and reverse:
+                # print('found!', [16], path)
+                return [16]
+            return None
+        curr_key = list(remove_nibbles_terminator(decode_nibbles(node[0])))
+        if node_type == NODE_TYPE_LEAF:
+            # print('found#', curr_key, path)
+            return curr_key
+
+        if node_type == NODE_TYPE_EXTENSION:
+            sub_node = self._get_node(node[1])
+            return curr_key + \
+                self._getany(sub_node, reverse=reverse, path=path + curr_key)
+
+    def _iter(self, node, key, reverse=False, path=[]):
+        # print('iter', node, key, 'reverse =', reverse, 'path =', path)
+        node_type = get_node_type(node)
+
+        if node_type == NODE_TYPE_BLANK:
+            return None
+
+        elif node_type == NODE_TYPE_BRANCH:
+            # print('b')
+            if len(key):
+                sub_node = self._get_node(node[key[0]])
+                o = self._iter(sub_node, key[1:], reverse, path + [key[0]])
+                if o is not None:
+                    # print('returning', [key[0]] + o, path)
+                    return [key[0]] + o
+            if reverse:
+                scan_range = reversed(list(range(key[0] if len(key) else 0)))
+            else:
+                scan_range = list(range(key[0] + 1 if len(key) else 0, 16))
+            for i in scan_range:
+                sub_node = self._get_node(node[i])
+                # print('prelim getany', path+[i])
+                o = self._getany(sub_node, reverse, path + [i])
+                if o is not None:
+                    # print('returning', [i] + o, path)
+                    return [i] + o
+            if reverse and key and node[16]:
+                # print('o')
+                return [16]
+            return None
+
+        descend_key = list(remove_nibbles_terminator(decode_nibbles(node[0])))
+        if node_type == NODE_TYPE_LEAF:
+            if reverse:
+                # print('L', descend_key, key, descend_key if descend_key < key else None, path)
+                return descend_key if descend_key < key else None
+            else:
+                # print('L', descend_key, key, descend_key if descend_key > key else None, path)
+                return descend_key if descend_key > key else None
+
+        if node_type == NODE_TYPE_EXTENSION:
+            # traverse child nodes
+            sub_node = self._get_node(node[1])
+            sub_key = key[len(descend_key):]
+            # print('amhere', key, descend_key, descend_key > key[:len(descend_key)])
+            if key_starts_with(key, descend_key):
+                o = self._iter(sub_node, sub_key, reverse, path + descend_key)
+            elif descend_key > key[:len(descend_key)] and not reverse:
+                # print(1)
+                # print('prelim getany', path+descend_key)
+                o = self._getany(sub_node, False, path + descend_key)
+            elif descend_key < key[:len(descend_key)] and reverse:
+                # print(2)
+                # print('prelim getany', path+descend_key)
+                o = self._getany(sub_node, True, path + descend_key)
+            else:
+                o = None
+            # print('returning@', descend_key + o if o else None, path)
+            return descend_key + o if o else None
+
+    def next(self, key):
+        # print('nextting')
+        key = list(bytes_to_nibbles(key))
+        o = self._iter(self.root_node, key)
+        # print('answer', o)
+        return nibbles_to_bytes(remove_nibbles_terminator(o)) if o else None
+
+    def prev(self, key):
+        # print('prevving')
+        key = list(bytes_to_nibbles(key))
+        o = self._iter(self.root_node, key, reverse=True)
+        # print('answer', o)
+        return nibbles_to_bytes(remove_nibbles_terminator(o)) if o else None
 
     #
     # Dictionary API

@@ -47,6 +47,7 @@ BASE_FIXTURE_PATH = os.path.join(ROOT_PROJECT_DIR, 'fixtures', 'TrieTests')
 
 
 FIXTURES_PATHS = tuple(recursive_find_files(BASE_FIXTURE_PATH, "trietest.json"))
+NEXT_PREV_FIXTURE_PATH = os.path.join(BASE_FIXTURE_PATH, "trietestnextprev.json")
 
 
 def test_fixtures_exist():
@@ -60,6 +61,9 @@ RAW_FIXTURES = tuple(
         json.load(open(fixture_path)),
     ) for fixture_path in FIXTURES_PATHS
 )
+RAW_NEXT_PREV_FIXTURES = [
+    (os.path.basename(NEXT_PREV_FIXTURE_PATH), json.load(open(NEXT_PREV_FIXTURE_PATH)))
+]
 
 
 FIXTURES = tuple(
@@ -70,6 +74,11 @@ FIXTURES = tuple(
     for fixture_filename, fixtures in RAW_FIXTURES
     for key in sorted(fixtures.keys())
 )
+NEXT_PREV_FIXTURES = [
+    ("{0}:{1}".format(fixture_filename, key), fixtures[key])
+    for fixture_filename, fixtures in RAW_NEXT_PREV_FIXTURES
+    for key in sorted(fixtures.keys())
+]
 
 
 @pytest.mark.parametrize(
@@ -110,3 +119,26 @@ def test_trie_using_fixtures(fixture_name, fixture):
         actual_root = trie.root_hash
 
         assert actual_root == expected_root
+
+
+@pytest.mark.parametrize(
+    'fixture_name,fixture', NEXT_PREV_FIXTURES,
+)
+def test_trie_next_prev_using_fixtures(fixture_name, fixture):
+    trie = HexaryTrie(db={})
+    for k in fixture['in']:
+        k = force_bytes(k)
+        trie[k] = k
+
+    nxt = trie.next(b'')
+    assert nxt is not None
+    while nxt is not None:
+        print(nxt)
+        nxt = trie.next(nxt)
+
+    for point, prev, nxt in fixture['tests']:
+        point = force_bytes(point)
+        prev = force_bytes(prev)
+        nxt = force_bytes(nxt)
+        assert nxt == (trie.next(point) or b'')
+        assert prev == (trie.prev(point) or b'')
